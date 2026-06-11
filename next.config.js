@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 
 const { PHASE_DEVELOPMENT_SERVER } = require('next/constants');
-const webpack = require('webpack');
+const path = require('path');
 
 // 检测是否为 Cloudflare Pages 构建
 const isCloudflare = process.env.CF_PAGES === '1' || process.env.BUILD_TARGET === 'cloudflare';
@@ -91,14 +91,35 @@ const createNextConfig = (phase) => {
 
     // Cloudflare 使用 D1，不需要把 better-sqlite3 原生模块带入 Worker 产物。
     if (isCloudflare) {
-      config.plugins.push(
-        new webpack.IgnorePlugin({
-          resourceRegExp: /^better-sqlite3$/,
-        })
-      );
       config.resolve.alias = {
         ...config.resolve.alias,
-        'better-sqlite3': false,
+        ...Object.fromEntries(
+          [
+            'better-sqlite3',
+            'sharp',
+            'nodemailer',
+            'socket.io',
+            'redis',
+            '@vercel/postgres',
+            'pg',
+          ].map((pkg) => [
+            pkg,
+            path.resolve(
+              __dirname,
+              'src/lib/cloudflare-shims/node-unsupported.ts'
+            ),
+          ])
+        ),
+        // Cloudflare Workers 有原生 fetch；代理 Agent 在 Workers 中不可用。
+        // 用轻量 shim 替换 node-fetch / https-proxy-agent，避免把 Node HTTP 栈打入 Worker。
+        'node-fetch': path.resolve(
+          __dirname,
+          'src/lib/cloudflare-shims/node-fetch.ts'
+        ),
+        'https-proxy-agent': path.resolve(
+          __dirname,
+          'src/lib/cloudflare-shims/https-proxy-agent.ts'
+        ),
       };
       config.externals = (config.externals || []).filter((external) => {
         return !(
